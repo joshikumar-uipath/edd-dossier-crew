@@ -1,7 +1,55 @@
+import hashlib
 import os
 
 from crewai import LLM, Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
+
+# Both names the Gemini provider consults, in the order it consults them.
+KEY_ENV_NAMES = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+
+def read_gemini_key() -> str | None:
+    for name in KEY_ENV_NAMES:
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def set_gemini_key(key: str | None) -> str | None:
+    """Publish `key` where the provider will read it. Returns where the effective
+    key came from -- "request", "env", or None if there isn't one."""
+    if key:
+        os.environ["GEMINI_API_KEY"] = key
+        # Only touch GOOGLE_API_KEY if something already set it: it wins on
+        # precedence, so a stale one would shadow ours. Setting both when it is
+        # absent just makes the provider warn on every call.
+        if os.environ.get("GOOGLE_API_KEY"):
+            os.environ["GOOGLE_API_KEY"] = key
+        return "request"
+    return "env" if read_gemini_key() else None
+
+
+def fingerprint(key: str | None) -> str:
+    """A stable, non-reversible tag for a key, so a log line can say *which* key
+    arrived without ever carrying the key itself."""
+    if not key:
+        return "none"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:8]
+    return f"sha256:{digest} len={len(key)}"
+
+
+def credential_report(source: str | None) -> str:
+    """One line, safe for the platform's log tab: names and shapes, never values."""
+    related = sorted(
+        n for n in os.environ
+        if any(t in n.upper() for t in ("GEMINI", "GOOGLE", "VERTEX", "GENAI"))
+    )
+    return (
+        f"gemini key source={source or 'NOWHERE'} "
+        f"{fingerprint(read_gemini_key())} "
+        f"related_env={related or '[]'} total_env={len(os.environ)}"
+    )
 
 
 @CrewBase
@@ -18,12 +66,13 @@ class EddDossierCrew:
     LLM_MODEL = "gemini/gemini-2.5-flash"
 
     def _llm(self) -> LLM:
-        # Pass the key explicitly when we have one: the platform's Environment
-        # Variables page does not inject into the container (verified -- the pod
-        # has 27 vars, EXA_API_KEY and INTERNAL_API_KEY among them, but neither
-        # GEMINI_API_KEY nor GOOGLE_API_KEY). Never raise here: this runs at
-        # startup, and raising crash-loops the pod and rolls the deploy back.
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        # Pass the key explicitly when we have one. Never raise here, even with no
+        # key: this runs at startup -- the platform builds the crew to read the
+        # {placeholders} for its Inputs tab -- and raising crash-loops the pod and
+        # rolls the deploy back. A keyless LLM is fine to construct; the provider
+        # defers building its client and re-reads os.environ on the first call, so
+        # a key that arrives later with the request still lands.
+        key = read_gemini_key()
         kwargs = {"api_key": key} if key else {}
         return LLM(model=self.LLM_MODEL, temperature=0.2, **kwargs)
 
