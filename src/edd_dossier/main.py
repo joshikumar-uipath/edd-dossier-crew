@@ -16,5 +16,10 @@ def kickoff(inputs: dict | None = None):
     return EddDossierCrew().crew().kickoff(inputs=data)
 
 
+def run():
+    """Name the CrewAI scaffold expects."""
+    return kickoff()
+
+
 if __name__ == "__main__":
-    print(kickoff())
+    print(run())

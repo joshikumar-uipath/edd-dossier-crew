@@ -2,12 +2,12 @@
 name = "edd_dossier"
 version = "1.0.0"
 description = "Enhanced due diligence dossier crew for retail account opening"
-requires-python = ">=3.10,<3.14"
-dependencies = ["crewai[tools]>=0.100.0"]
+requires-python = ">=3.10,<3.13"
+dependencies = ["crewai>=0.100.0,<1.0.0"]
 
 [project.scripts]
+run_crew = "edd_dossier.main:run"
 kickoff = "edd_dossier.main:kickoff"
-run_crew = "edd_dossier.main:kickoff"
 
 [build-system]
 requires = ["hatchling"]
