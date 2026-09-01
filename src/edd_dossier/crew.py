@@ -2,10 +2,29 @@ import hashlib
 import os
 
 from crewai import LLM, Agent, Crew, Process, Task
-from crewai.project import CrewBase, agent, crew, task
+from crewai.project import CrewBase, agent, before_kickoff, crew, task
 
 # Both names the Gemini provider consults, in the order it consults them.
 KEY_ENV_NAMES = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+
+# Accepted spellings for the key when it arrives with the request. The Inputs tab
+# does not declare it, so a caller may reasonably guess at any of these.
+KEY_INPUTS = ("gemini_api_key", "GEMINI_API_KEY", "google_api_key", "GOOGLE_API_KEY")
+
+
+def take_key(data: dict) -> str | None:
+    """Remove every key-ish entry from the inputs and return the first value.
+
+    They must not survive in the dict: inputs are interpolated into task
+    descriptions, so an unconsumed key would be pasted into a prompt and sent
+    to the model provider.
+    """
+    found = None
+    for name in KEY_INPUTS:
+        value = data.pop(name, None)
+        if value and not found:
+            found = str(value).strip()
+    return found
 
 
 def read_gemini_key() -> str | None:
@@ -64,6 +83,34 @@ class EddDossierCrew:
     # Gemini rather than the OpenAI default: the Vertex agent in the Decision stage
     # runs on the same family, so the whole case reasons on one model.
     LLM_MODEL = "gemini/gemini-2.5-flash"
+
+    @before_kickoff
+    def resolve_credentials(self, inputs: dict | None) -> dict:
+        """Take the key off the request and publish it before any agent runs.
+
+        This lives here, not in main.py, because the platform does not call
+        main.kickoff(): it builds this class itself and calls Crew.kickoff()
+        directly -- proven by a trace whose Crew Input still carried
+        gemini_api_key, a field main.py pops. before_kickoff runs inside
+        Crew.kickoff(), so it fires whichever entry point is used.
+
+        The agents were already built, with no key, when the platform
+        introspected the crew. That is fine: the Gemini provider defers
+        creating its client and re-reads os.environ on the first call, so a
+        key published here still lands.
+        """
+        data = dict(inputs or {})
+        source = set_gemini_key(take_key(data))
+        print(f"edd-dossier: {credential_report(source)}", flush=True)
+        if source is None:
+            # Safe to raise: this runs per request, inside kickoff. Raising from
+            # _llm() instead would fire at startup and crash-loop the pod.
+            raise ValueError(
+                "No Gemini API key available. The container has none injected, so "
+                "send one with the request: POST /kickoff with \"gemini_api_key\" "
+                "inside the \"inputs\" object. " + credential_report(None)
+            )
+        return data
 
     def _llm(self) -> LLM:
         # Pass the key explicitly when we have one. Never raise here, even with no
