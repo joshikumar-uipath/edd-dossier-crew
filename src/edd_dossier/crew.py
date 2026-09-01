@@ -1,4 +1,4 @@
-from crewai import Agent, Crew, Process, Task
+from crewai import LLM, Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 
 
@@ -11,21 +11,28 @@ class EddDossierCrew:
     agents_config = "config/agents.yaml"
     tasks_config = "config/tasks.yaml"
 
+    # Gemini rather than the OpenAI default: the Vertex agent in the Decision stage
+    # runs on the same family, so the whole case reasons on one model.
+    LLM_MODEL = "gemini/gemini-2.5-flash"
+
+    def _llm(self) -> LLM:
+        return LLM(model=self.LLM_MODEL, temperature=0.2)
+
     @agent
     def media_researcher(self) -> Agent:
-        return Agent(config=self.agents_config["media_researcher"], verbose=True)
+        return Agent(config=self.agents_config["media_researcher"], llm=self._llm(), verbose=True)
 
     @agent
     def registry_analyst(self) -> Agent:
-        return Agent(config=self.agents_config["registry_analyst"], verbose=True)
+        return Agent(config=self.agents_config["registry_analyst"], llm=self._llm(), verbose=True)
 
     @agent
     def sanctions_contextualiser(self) -> Agent:
-        return Agent(config=self.agents_config["sanctions_contextualiser"], verbose=True)
+        return Agent(config=self.agents_config["sanctions_contextualiser"], llm=self._llm(), verbose=True)
 
     @agent
     def edd_writer(self) -> Agent:
-        return Agent(config=self.agents_config["edd_writer"], verbose=True)
+        return Agent(config=self.agents_config["edd_writer"], llm=self._llm(), verbose=True)
 
     @task
     def research_media(self) -> Task:
