@@ -18,20 +18,14 @@ class EddDossierCrew:
     LLM_MODEL = "gemini/gemini-2.5-flash"
 
     def _llm(self) -> LLM:
-        # Pass the key explicitly rather than trusting provider env lookup. When it
-        # is missing the platform only surfaces a generic "Authentication required",
-        # which says nothing about what the container actually got -- so name the
-        # variables we looked for, and what env keys are present, without leaking values.
+        # Pass the key explicitly when we have one: the platform's Environment
+        # Variables page does not inject into the container (verified -- the pod
+        # has 27 vars, EXA_API_KEY and INTERNAL_API_KEY among them, but neither
+        # GEMINI_API_KEY nor GOOGLE_API_KEY). Never raise here: this runs at
+        # startup, and raising crash-loops the pod and rolls the deploy back.
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not key:
-            visible = sorted(k for k in os.environ if any(
-                t in k.upper() for t in ("GEMINI", "GOOGLE", "API", "KEY", "LLM")))
-            raise RuntimeError(
-                "No Gemini key in the container. Looked for GEMINI_API_KEY and "
-                "GOOGLE_API_KEY. Env keys that look related: "
-                + (", ".join(visible) if visible else "(none)")
-                + f" | total env vars: {len(os.environ)}")
-        return LLM(model=self.LLM_MODEL, temperature=0.2, api_key=key)
+        kwargs = {"api_key": key} if key else {}
+        return LLM(model=self.LLM_MODEL, temperature=0.2, **kwargs)
 
     @agent
     def media_researcher(self) -> Agent:
